@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArcGIS REST API Live Demo</title>
+    <!-- โหลด Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: sans-serif;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .status-box {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 1000;
+            background: white;
+            padding: 10px 16px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="status-box" id="status">กำลังเชื่อมต่อและดึงข้อมูลจาก ArcGIS REST API...</div>
+    <div id="map"></div>
+
+    <!-- โหลด Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // 1. กำหนดแผนที่ฐาน (Base Map)
+        const map = L.map('map').setView([20, 0], 2); // ซูมระดับโลก
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: '© OpenStreetMap contributors | Data: Esri ArcGIS Server'
+        }).addTo(map);
+
+        // 2. URL สดของ ArcGIS REST Service (ข้อมูลแผ่นดินไหวจริงจาก Public Sample Server)
+        const serviceUrl = 'https://sampleserver6.arcgisonline.com/arcgis/rest/services/Earthquakes_Since1970/FeatureServer/0/query';
+
+        // 3. กำหนด Parameters เพื่อแปลงผลลัพธ์เป็น GeoJSON ทันที
+        const params = new URLSearchParams({
+            where: 'magnitude >= 7', // กรองเฉพาะแผ่นดินไหวขนาดใหญ่ >= 7.0 ริกเตอร์
+            outFields: 'magnitude,name,date_', // ระบุ attributes ที่ต้องการ
+            outSR: '4326', // บังคับคืนพิกัดระบบ WGS84 (Lat, Long)
+            f: 'geojson',  // กำหนด Response Format เป็น GeoJSON
+            resultRecordCount: '150' // ดึงมาแสดง 150 รายการ
+        });
+
+        const statusEl = document.getElementById('status');
+
+        // 4. เรียก Request ผ่าน fetch API
+        fetch(`${serviceUrl}?${params.toString()}`)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            })
+            .then(geojsonData => {
+                // อัปเดตสถานะ
+                const total = geojsonData.features ? geojsonData.features.length : 0;
+                statusEl.innerHTML = `โหลดสำเร็จ: แสดงข้อมูลแผ่นดินไหว <strong>${total}</strong> จุด`;
+
+                // 5. นำ GeoJSON มาเรนเดอร์เป็น CircleMarker บนแผนที่
+                L.geoJSON(geojsonData, {
+                    pointToLayer: (feature, latlng) => {
+                        const mag = feature.properties.magnitude || 5;
+                        return L.circleMarker(latlng, {
+                            radius: Math.max(mag * 1.5, 4), // ปรับขนาดวงกลมตามความแรง
+                            fillColor: "#e63946",
+                            color: "#900c19",
+                            weight: 1,
+                            opacity: 1,
+                            fillOpacity: 0.7
+                        });
+                    },
+                    onEachFeature: (feature, layer) => {
+                        const p = feature.properties;
+                        const dateStr = p.date_ ? new Date(p.date_).toLocaleDateString() : 'N/A';
+                        layer.bindPopup(`
+              <div style="font-size:13px; line-height: 1.5;">
+                <strong style="color:#d62828;">ความแรง:</strong> ${p.magnitude} Magnitude<br/>
+                <strong>สถานที่:</strong> ${p.name || 'ไม่ระบุ'}<br/>
+                <strong>วันที่:</strong> ${dateStr}
+              </div>
+            `);
+                    }
+                }).addTo(map);
+            })
+            .catch(error => {
+                console.error('Error fetching ArcGIS data:', error);
+                statusEl.innerText = 'เกิดข้อผิดพลาดในการโหลดข้อมูล';
+                statusEl.style.color = 'red';
+            });
+    </script>
+</body>
+
+</html>
